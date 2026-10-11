@@ -1,0 +1,654 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>js2d - prueba visual</title>
+<style>
+	html, body { margin: 0; height: 100%; background: #0d1620; overflow: hidden; }
+	canvas { display: block; touch-action: none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script src="js2d.js"></script>
+<script>
+// Prueba visual de js2d: una sección por función del motor, con controles para probarla a mano.
+// Teclas 1 a 7 (o las pestañas de arriba) cambian de sección. La propia página usa el motor
+// para todo: js.ui para los controles y js.scenes para las secciones.
+"use strict";
+
+const canvas = document.getElementById("c");
+const js = new Js2d(canvas);
+
+// ---------------------------------------------------------------------------------------------
+// Base: colores, medidas y helpers de dibujo
+// ---------------------------------------------------------------------------------------------
+
+const C = {
+	bg: "#0d1620", panel: "rgba(255,255,255,0.05)", line: "rgba(255,255,255,0.14)",
+	text: "#e9eef4", dim: "#8fa0b3", accent: "#ffb703", ok: "#06d6a0", bad: "#ef476f", blue: "#118ab2", violet: "#8e7dff",
+};
+const FONT = `system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif`;
+js.ui.theme.font = FONT;
+js.ui.theme.accent = C.accent;
+js.ui.theme.panel = "rgba(18,30,44,0.94)";
+js.ui.navigation = true;                       // Tab, flechas, Enter/Espacio y Escape manejan la interfaz
+
+let U = 1;                                    // unidad de interfaz (se recalcula en cada cuadro)
+let content = { x: 0, y: 0, w: 0, h: 0 };     // zona de la sección, debajo de las pestañas
+const R = (x, y, w, h) => ({ x, y, width: w, height: h });
+const P = (x, y) => ({ x, y });
+const clamp = Js2d.clamp;
+
+// Texto con la tipografía de la interfaz. size en unidades de interfaz.
+function T(str, x, y, size = 14, color = C.text, align = "left", weight = 500) {
+	js.ui.label(String(str), x, y, { size, color, align, weight });
+}
+function box(r, color = C.panel) {
+	js.drawRectangleRounded(R(r.x, r.y, r.w, r.h), 10 * U, color);
+	js.drawRectangleRoundedLines(R(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1), 10 * U, 1, C.line);
+}
+function btn(id, rect, label, opts = {}) {
+	return js.ui.button(id, R(rect.x, rect.y, rect.w ?? rect.width, rect.h ?? rect.height), label, { radius: 8, size: 13, fit: true, ...opts });
+}
+// Reparte `r` en filas de alto fijo; devuelve el rectángulo de la fila i.
+function fila(r, i, alto, sep = 8) {
+	return { x: r.x, y: r.y + i * (alto * U + sep * U), w: r.w, h: alto * U };
+}
+// Interruptor con texto, slider con título y valor.
+function interruptor(id, r, valor, texto) {
+	return js.ui.toggle(id, R(r.x, r.y, r.w, r.h), valor, texto, { size: 13 });
+}
+function deslizador(id, r, valor, min, max, titulo, fmt = v => v.toFixed(2), opts = {}) {
+	T(titulo + ": " + fmt(valor), r.x, r.y + 8 * U, 12, C.dim);
+	return js.ui.slider(id, R(r.x, r.y + 14 * U, r.w, r.h - 14 * U), valor, min, max, opts);
+}
+
+// ---------------------------------------------------------------------------------------------
+// 1. Curvas y tweens
+// ---------------------------------------------------------------------------------------------
+
+const curvas = { celdas: [], demo: null, timer: null };
+const NOMBRES = Object.keys(Ease).filter(n => n !== "get");
+
+function lanzarCelda(c) {
+	js.killTweens(c);
+	c.p = 0; c.v = 0;
+	js.tween(c, { p: 1 }, 2.4, { repeat: true });                         // tiempo lineal
+	js.tween(c, { v: 1 }, 2.4, { ease: c.nombre, repeat: true });         // el mismo tiempo, con la curva
+}
+function lanzarDemo() {
+	const d = curvas.demo;
+	js.killTweens(d);
+	Object.assign(d, { a: 0, b: 0, c: 0, d: 0, color: 0, fin: "-" });
+	js.tween(d, { a: 1 }, 0.9, { delay: 0.6, ease: "outBack" });                                  // delay
+	js.tween(d, { b: 1 }, 0.5, { repeat: 3, yoyo: true, ease: "inOutSine" });                      // repeat + yoyo
+	js.tween(d, { c: 1 }, 0.9, { from: { c: -0.3 }, ease: "outElastic" });                         // from
+	js.tween(d, { d: 1 }, 0.8, { ease: "outBounce", onComplete: () => { d.fin = "onComplete llamado"; } });
+	if (curvas.timer) curvas.timer.cancel();
+	curvas.timer = js.after(1.5, () => { d.color = 1; });                                          // after
+}
+
+js.scenes.add("curvas", {
+	enter() {
+		curvas.celdas = NOMBRES.map(nombre => ({ nombre, p: 0, v: 0 }));
+		curvas.celdas.forEach(lanzarCelda);
+		curvas.demo = { a: 0, b: 0, c: 0, d: 0, color: 0, fin: "-" };
+		lanzarDemo();
+	},
+	exit() { js.clearTweens(); },
+	update() {
+		const id = js.ui.clicked;
+		if (id && id.startsWith("curva:")) lanzarCelda(curvas.celdas.find(c => c.nombre === id.slice(6)));
+		if (id === "demo") lanzarDemo();
+	},
+	draw() {
+		const { x, y, w, h } = content;
+		const demoH = 92 * U;
+		const cols = Math.max(2, Math.floor(w / (150 * U)));
+		const cw = w / cols, rows = Math.ceil(curvas.celdas.length / cols);
+		const ch = Math.min(112 * U, (h - demoH - 10 * U) / rows);
+		curvas.celdas.forEach((c, i) => {
+			const cx = x + (i % cols) * cw, cy = y + Math.floor(i / cols) * ch;
+			const cell = { x: cx + 3 * U, y: cy + 3 * U, w: cw - 6 * U, h: ch - 6 * U };
+			js.ui.button("curva:" + c.nombre, R(cell.x, cell.y, cell.w, cell.h), "", { color: "rgba(255,255,255,0.04)", border: C.line, radius: 8 });
+			// gráfico: x = tiempo, y = valor de la curva (de -0,5 a 1,5 para que se vean los pasos de rango)
+			const g = { x: cell.x + 8 * U, y: cell.y + 18 * U, w: cell.w - 16 * U, h: cell.h - 26 * U };
+			const Y = v => g.y + g.h * (1 - (v + 0.5) / 2);
+			js.drawLine(P(g.x, Y(0)), P(g.x + g.w, Y(0)), 1, "rgba(255,255,255,0.12)");
+			js.drawLine(P(g.x, Y(1)), P(g.x + g.w, Y(1)), 1, "rgba(255,255,255,0.12)");
+			const f = Ease.get(c.nombre);
+			for (let k = 0; k < 40; k++) js.drawLine(P(g.x + g.w * k / 40, Y(f(k / 40))), P(g.x + g.w * (k + 1) / 40, Y(f((k + 1) / 40))), 1.5, C.blue);
+			// el marcador usa el valor del tween: si la curva y el tween no coinciden, se nota
+			js.drawCircle(P(g.x + g.w * c.p, Y(c.v)), 4 * U, C.accent);
+			js.drawCircle(P(g.x + g.w, Y(c.v)), 3 * U, "rgba(255,183,3,0.5)");
+			T(c.nombre, cell.x + 8 * U, cell.y + 10 * U, 11, C.text, "left", 600);
+		});
+		// demostración de opciones del tween
+		const dy = y + h - demoH, d = curvas.demo;
+		box({ x, y: dy, w, h: demoH });
+		T("Opciones de js.tween: delay, repeat + yoyo, from, onComplete y js.after", x + 12 * U, dy + 14 * U, 12, C.dim);
+		const pista = w - 190 * U, px = x + 12 * U;
+		const pistas = [["delay 0,6 s + outBack", d.a, C.accent], ["repeat 3 + yoyo", d.b, C.ok], ["from -0,3 + outElastic", d.c, C.violet], ["outBounce", d.d, C.blue]];
+		pistas.forEach(([nombre, v, col], i) => {
+			const yy = dy + 30 * U + i * 14 * U;
+			js.drawRectangleRounded(R(px + 150 * U, yy - 3 * U, pista - 150 * U, 6 * U), 3 * U, "rgba(255,255,255,0.1)");
+			js.drawCircle(P(px + 150 * U + (pista - 150 * U) * clamp(v, -0.5, 1.5), yy), 5 * U, col);
+			T(nombre, px, yy, 11, C.dim);
+		});
+		btn("demo", { x: x + w - 160 * U, y: dy + 28 * U, w: 148 * U, h: 30 * U }, "Repetir", { primary: true });
+		js.drawRectangleRounded(R(x + w - 160 * U, dy + 64 * U, 148 * U, 18 * U), 6 * U, d.color ? C.ok : "rgba(255,255,255,0.1)");
+		T("js.after(1,5 s)", x + w - 86 * U, dy + 73 * U, 11, d.color ? "#06251b" : C.dim, "center", 600);
+		T(d.fin, x + w - 86 * U, dy + 14 * U, 11, C.ok, "center");
+	},
+});
+
+// ---------------------------------------------------------------------------------------------
+// 2. Screen shake
+// ---------------------------------------------------------------------------------------------
+
+const sacudida = { magnitud: 14, duracion: 0.6, frecuencia: 25, giro: 0 };
+
+js.scenes.add("shake", {
+	update() {
+		switch (js.ui.clicked) {
+			case "golpe": js.shake(10 * U, 0.3); break;
+			case "largo": js.shake(6 * U, 1.6, { frequency: 40, rotation: 1 }); break;
+			case "solox": js.shake(14 * U, 0.6, { axis: "x" }); break;
+			case "soloy": js.shake(14 * U, 0.6, { axis: "y" }); break;
+			case "explosion": js.shake(26 * U, 0.7, { decay: "outQuad", rotation: 2 }); break;
+			case "custom": js.shake(sacudida.magnitud * U, sacudida.duracion, { frequency: sacudida.frecuencia, rotation: sacudida.giro }); break;
+			case "stop": js.stopShake(); break;
+		}
+	},
+	draw() {
+		const { x, y, w, h } = content;
+		// escena que tiembla: una grilla, círculos y un texto
+		const esc = { x: x + 250 * U, y, w: w - 250 * U, h };
+		for (let gx = 0; gx <= esc.w; gx += 40 * U) js.drawLine(P(esc.x + gx, esc.y), P(esc.x + gx, esc.y + esc.h), 1, "rgba(255,255,255,0.07)");
+		for (let gy = 0; gy <= esc.h; gy += 40 * U) js.drawLine(P(esc.x, esc.y + gy), P(esc.x + esc.w, esc.y + gy), 1, "rgba(255,255,255,0.07)");
+		js.drawCircle(P(esc.x + esc.w / 2, esc.y + esc.h / 2), 70 * U, C.blue);
+		js.drawCircle(P(esc.x + esc.w / 2, esc.y + esc.h / 2), 36 * U, C.accent);
+		js.drawRectangle(R(esc.x + 30 * U, esc.y + 30 * U, 90 * U, 90 * U), C.violet);
+		T("Esto tiembla", esc.x + esc.w / 2, esc.y + esc.h / 2 + 100 * U, 22, C.text, "center", 700);
+		T("el fondo liso no se mueve; lo dibujado sí", esc.x + esc.w / 2, esc.y + esc.h / 2 + 124 * U, 12, C.dim, "center");
+
+		// controles y HUD: fuera del temblor (js.withoutShake), para que se puedan tocar
+		js.withoutShake(() => {
+			const col = { x: x + 4 * U, y, w: 236 * U, h };
+			box(col);
+			const i = { x: col.x + 10 * U, y: col.y + 10 * U, w: col.w - 20 * U };
+			["golpe:Golpe", "largo:Temblor largo + giro", "solox:Solo eje X", "soloy:Solo eje Y", "explosion:Explosión", "stop:Parar"].forEach((s, k) => {
+				const [id, nombre] = s.split(":");
+				btn(id, fila(i, k, 30, 6), nombre, { primary: k === 0 });
+			});
+			let yy = col.y + 10 * U + 6 * 36 * U + 10 * U;
+			T("Personalizado", i.x, yy, 13, C.text, "left", 700); yy += 14 * U;
+			sacudida.magnitud = deslizador("s_mag", { x: i.x, y: yy, w: i.w, h: 34 * U }, sacudida.magnitud, 1, 40, "magnitud", v => v.toFixed(0) + " px"); yy += 38 * U;
+			sacudida.duracion = deslizador("s_dur", { x: i.x, y: yy, w: i.w, h: 34 * U }, sacudida.duracion, 0.1, 3, "duración", v => v.toFixed(1) + " s"); yy += 38 * U;
+			sacudida.frecuencia = deslizador("s_fre", { x: i.x, y: yy, w: i.w, h: 34 * U }, sacudida.frecuencia, 5, 60, "frecuencia", v => v.toFixed(0) + " Hz"); yy += 38 * U;
+			sacudida.giro = deslizador("s_gir", { x: i.x, y: yy, w: i.w, h: 34 * U }, sacudida.giro, 0, 4, "giro", v => v.toFixed(1) + "°"); yy += 42 * U;
+			btn("custom", { x: i.x, y: yy, w: i.w, h: 30 * U }, "Probar personalizado", { primary: true }); yy += 40 * U;
+			js.shakeEnabled = interruptor("s_en", { x: i.x, y: yy, w: i.w, h: 26 * U }, js.shakeEnabled, "shakeEnabled");
+			// HUD fijo
+			const o = js.shakeOffset;
+			box({ x: x + w - 196 * U, y: y + 8 * U, w: 188 * U, h: 62 * U }, "rgba(18,30,44,0.94)");
+			T("HUD sin temblor", x + w - 186 * U, y + 22 * U, 12, C.text, "left", 700);
+			T(`x ${o.x.toFixed(1)}  y ${o.y.toFixed(1)}`, x + w - 186 * U, y + 40 * U, 12, C.dim);
+			T(`giro ${(o.rotation * 180 / Math.PI).toFixed(2)}°`, x + w - 186 * U, y + 56 * U, 12, C.dim);
+		});
+	},
+});
+
+// ---------------------------------------------------------------------------------------------
+// 3. Escenas (un SceneManager propio, para probar varias instancias)
+// ---------------------------------------------------------------------------------------------
+
+const esc = { sm: null, log: [], fundido: true };
+function anotar(s) { esc.log.unshift(s); if (esc.log.length > 9) esc.log.pop(); }
+function subescena(nombre, color, overlay = false) {
+	const s = {
+		t: 0, overlay,
+		enter(params, from) { this.t = 0; anotar(`${nombre}.enter(from: ${from})`); },
+		exit(to) { anotar(`${nombre}.exit(to: ${to})`); },
+		pause() { anotar(`${nombre}.pause`); },
+		resume() { anotar(`${nombre}.resume`); },
+		update(dt) { this.t += dt; },
+		draw() {
+			const a = escRect();
+			if (overlay) {
+				js.drawRectangle(R(a.x, a.y, a.w, a.h), "rgba(0,0,0,0.55)");
+				box({ x: a.x + a.w / 2 - 110 * U, y: a.y + a.h / 2 - 40 * U, w: 220 * U, h: 80 * U }, "rgba(18,30,44,0.97)");
+				T("PAUSA (overlay)", a.x + a.w / 2, a.y + a.h / 2 - 8 * U, 18, C.text, "center", 700);
+				T("la escena de abajo se sigue dibujando", a.x + a.w / 2, a.y + a.h / 2 + 18 * U, 11, C.dim, "center");
+				return;
+			}
+			js.drawRectangle(R(a.x, a.y, a.w, a.h), color);
+			T("Escena " + nombre, a.x + 20 * U, a.y + 34 * U, 30, "#ffffff", "left", 800);
+			const bx = a.x + a.w / 2 + Math.sin(this.t * 2) * (a.w / 2 - 60 * U);
+			js.drawCircle(P(bx, a.y + a.h / 2), 26 * U, "rgba(255,255,255,0.85)");
+			T("update() recibió " + this.t.toFixed(1) + " s", a.x + 20 * U, a.y + a.h - 20 * U, 12, "rgba(255,255,255,0.8)");
+		},
+	};
+	return s;
+}
+function escRect() { return { x: content.x + 4 * U, y: content.y, w: content.w - 290 * U, h: content.h }; }
+
+js.scenes.add("escenas", {
+	enter() {
+		esc.sm = new SceneManager(js);
+		esc.sm.add("A", subescena("A", "#1b6f8a"));
+		esc.sm.add("B", subescena("B", "#2f8f5b"));
+		esc.sm.add("C", subescena("C", "#a8466d"));
+		esc.sm.add("pausa", subescena("pausa", null, true));
+		esc.log = [];
+		esc.sm.switch("A");
+	},
+	update(dt) {
+		const id = js.ui.clicked;
+		const opts = esc.fundido ? { fade: 0.8 } : {};
+		if (id === "irA" || id === "irB" || id === "irC") esc.sm.switch(id.slice(2), { desde: "botón" }, opts);
+		if (id === "push") { if (esc.sm.current !== "pausa") esc.sm.push("pausa"); }
+		if (id === "pop") esc.sm.pop();
+		esc.sm.update(dt);
+	},
+	draw() {
+		const a = escRect();
+		esc.sm.draw();
+		const col = { x: content.x + content.w - 282 * U, y: content.y, w: 282 * U, h: content.h };
+		box(col);
+		const i = { x: col.x + 10 * U, y: col.y + 10 * U, w: col.w - 20 * U };
+		T("SceneManager", i.x, i.y + 6 * U, 14, C.text, "left", 700);
+		const cs = js.ui.columns(R(i.x, i.y + 20 * U, i.w, 30 * U), 3, 6 * U);
+		["irA:Ir a A", "irB:Ir a B", "irC:Ir a C"].forEach((s, k) => { const [id, n] = s.split(":"); btn(id, { x: cs[k].x, y: cs[k].y, w: cs[k].width, h: cs[k].height }, n); });
+		const cs2 = js.ui.columns(R(i.x, i.y + 56 * U, i.w, 30 * U), 2, 6 * U);
+		btn("push", { x: cs2[0].x, y: cs2[0].y, w: cs2[0].width, h: cs2[0].height }, "push(pausa)", { primary: true });
+		btn("pop", { x: cs2[1].x, y: cs2[1].y, w: cs2[1].width, h: cs2[1].height }, "pop()");
+		esc.fundido = interruptor("e_fade", { x: i.x, y: i.y + 94 * U, w: i.w, h: 26 * U }, esc.fundido, "fundido de 0,8 s al cambiar");
+		T("current: " + esc.sm.current, i.x, i.y + 134 * U, 12, C.text);
+		T("stack: " + esc.sm.stack.join(" > "), i.x, i.y + 152 * U, 12, C.dim);
+		T("transitioning: " + esc.sm.transitioning, i.x, i.y + 170 * U, 12, esc.sm.transitioning ? C.accent : C.dim);
+		T("Eventos", i.x, i.y + 198 * U, 12, C.text, "left", 700);
+		esc.log.forEach((s, k) => T(s, i.x, i.y + 216 * U + k * 15 * U, 11, k === 0 ? C.accent : C.dim));
+	},
+});
+
+// ---------------------------------------------------------------------------------------------
+// 4. Partículas
+// ---------------------------------------------------------------------------------------------
+
+const part = { preset: 0, cantidad: 40, gravedad: 0, seguir: false, flujo: null, aditivo: false };
+const PRESETS = Object.keys(ParticleSystem.presets);
+
+js.input.bind("clic", "mouse:left");
+
+js.scenes.add("particulas", {
+	enter() {
+		js.particles.clear(); part.flujo = null; part.seguir = false;
+		// una ráfaga de bienvenida, para que la sección no aparezca vacía
+		js.particles.emit(content.x + 244 * U + (content.w - 244 * U) / 2, content.y + content.h / 2, 60, "explosion");
+	},
+	exit() { js.particles.clear(); part.flujo = null; },
+	update() {
+		if (js.ui.clicked === "limpiar") js.particles.clear();
+		const m = js.getMousePosition();
+		const sobreEscena = m.x > content.x + 244 * U && !js.ui.wantsPointer;
+		const opts = { preset: PRESETS[part.preset], ...(part.gravedad ? { gravity: part.gravedad } : {}), ...(part.aditivo ? { additive: true } : {}) };
+		if (js.input.pressed("clic") && sobreEscena) js.particles.emit(m.x, m.y, part.cantidad, opts);
+		// el emisor continuo se vuelve a crear cuando cambian los ajustes
+		const clave = part.seguir ? JSON.stringify(opts) : null;
+		if (part.flujo && part.flujo.clave !== clave) { part.flujo.stop(); part.flujo = null; }
+		if (clave && !part.flujo) { part.flujo = js.particles.stream(m.x, m.y, opts, 60); part.flujo.clave = clave; }
+		if (part.flujo) { part.flujo.x = m.x; part.flujo.y = m.y; }
+	},
+	draw() {
+		const { x, y, w, h } = content;
+		const esc2 = { x: x + 244 * U, y, w: w - 244 * U, h };
+		js.drawRectangle(R(esc2.x, esc2.y, esc2.w, esc2.h), "rgba(0,0,0,0.35)");
+		for (let gx = 0; gx <= esc2.w; gx += 50 * U) js.drawLine(P(esc2.x + gx, esc2.y), P(esc2.x + gx, esc2.y + esc2.h), 1, "rgba(255,255,255,0.04)");
+		T("Hacé clic en la escena para lanzar una ráfaga", esc2.x + esc2.w / 2, esc2.y + 20 * U, 13, C.dim, "center");
+		js.particles.draw();
+
+		const col = { x: x + 4 * U, y, w: 236 * U, h };
+		box(col);
+		const i = { x: col.x + 10 * U, y: col.y + 10 * U, w: col.w - 20 * U };
+		T("Preset", i.x, i.y + 6 * U, 13, C.text, "left", 700);
+		const sel = js.ui.list("p_lista", R(i.x, i.y + 18 * U, i.w, 4 * 32 * U), PRESETS, { rowHeight: 32, size: 13, selected: part.preset });
+		if (sel >= 0) part.preset = sel;
+		let yy = i.y + 18 * U + 4 * 32 * U + 12 * U;
+		part.cantidad = Math.round(deslizador("p_cant", { x: i.x, y: yy, w: i.w, h: 34 * U }, part.cantidad, 1, 200, "cantidad", v => v.toFixed(0))); yy += 38 * U;
+		part.gravedad = Math.round(deslizador("p_grav", { x: i.x, y: yy, w: i.w, h: 34 * U }, part.gravedad, -600, 900, "gravity (0 = el del preset)", v => v.toFixed(0), { step: 50 })); yy += 42 * U;
+		part.aditivo = interruptor("p_add", { x: i.x, y: yy, w: i.w, h: 26 * U }, part.aditivo, "additive"); yy += 32 * U;
+		part.seguir = interruptor("p_seg", { x: i.x, y: yy, w: i.w, h: 26 * U }, part.seguir, "stream que sigue al mouse"); yy += 38 * U;
+		btn("limpiar", { x: i.x, y: yy, w: i.w, h: 30 * U }, "particles.clear()"); yy += 42 * U;
+		T(`partículas vivas: ${js.particles.count} / ${js.particles.max}`, i.x, yy, 12, C.dim);
+	},
+});
+
+// ---------------------------------------------------------------------------------------------
+// 5. Interfaz (js.ui)
+// ---------------------------------------------------------------------------------------------
+
+const ui5 = { nav: true, toggle1: true, toggle2: false, slider: 0.35, paso: 6, lista: 2, escala: 1, ultimo: "-", textoLargo: "Un botón con un texto bastante largo" };
+const ITEMS = Array.from({ length: 40 }, (_, i) => i % 7 === 3 ? { label: "Elemento " + (i + 1) + " (deshabilitado)", disabled: true } : "Elemento " + (i + 1));
+
+js.scenes.add("interfaz", {
+	update() {
+		if (js.ui.clicked) ui5.ultimo = js.ui.clicked;
+	},
+	draw() {
+		const { x, y, w, h } = content;
+		const col1 = { x: x + 4 * U, y, w: Math.min(330 * U, w * 0.45), h };
+		const col2 = { x: col1.x + col1.w + 10 * U, y, w: w - col1.w - 18 * U, h };
+		box(col1); box(col2);
+		const base = js.ui.scale;
+		const TT = (...a) => { const s0 = js.ui.scale; js.ui.scale = base; T(...a); js.ui.scale = s0; };   // los títulos no cambian de tamaño
+		js.ui.scale = base * ui5.escala;
+		const k = ui5.escala;
+		const i = { x: col1.x + 10 * U, y: col1.y + 10 * U, w: col1.w - 20 * U };
+		const bh = 34 * U * k;
+		TT("Botones", i.x, i.y + 6 * U, 13, C.text, "left", 700);
+		const f1 = js.ui.columns(R(i.x, i.y + 18 * U, i.w, bh), 2, 6 * U);
+		btn("b_prim", { x: f1[0].x, y: f1[0].y, w: f1[0].width, h: f1[0].height }, "Principal", { primary: true });
+		btn("b_norm", { x: f1[1].x, y: f1[1].y, w: f1[1].width, h: f1[1].height }, "Normal");
+		const f2 = js.ui.columns(R(i.x, i.y + 18 * U + bh + 6 * U, i.w, bh), 2, 6 * U);
+		btn("b_dis", { x: f2[0].x, y: f2[0].y, w: f2[0].width, h: f2[0].height }, "Deshabilitado", { disabled: true });
+		btn("b_col", { x: f2[1].x, y: f2[1].y, w: f2[1].width, h: f2[1].height }, "Color propio", { color: C.violet, textColor: "#fff", gloss: true, border: "rgba(255,255,255,0.4)", shadow: true });
+		const f3 = { x: i.x, y: i.y + 18 * U + 2 * (bh + 6 * U), w: i.w, h: bh };
+		btn("b_fit", f3, ui5.textoLargo + " que se achica con fit", { fit: true });
+		let yy = f3.y + bh + 14 * U;
+		TT("Interruptores y sliders", i.x, yy, 13, C.text, "left", 700); yy += 14 * U;
+		ui5.toggle1 = js.ui.toggle("t1", R(i.x, yy, i.w, 26 * U * k), ui5.toggle1, "Opción A", { size: 13 }); yy += 32 * U * k;
+		ui5.toggle2 = js.ui.toggle("t2", R(i.x, yy, i.w, 26 * U * k), ui5.toggle2, "Opción B", { size: 13 }); yy += 34 * U * k;
+		TT("slider: " + ui5.slider.toFixed(2), i.x, yy, 12, C.dim); yy += 8 * U;
+		ui5.slider = js.ui.slider("sl1", R(i.x, yy, i.w, 24 * U * k), ui5.slider, 0, 1); yy += 32 * U * k;
+		TT("slider con step 2: " + ui5.paso, i.x, yy, 12, C.dim); yy += 8 * U;
+		ui5.paso = js.ui.slider("sl2", R(i.x, yy, i.w, 24 * U * k), ui5.paso, 0, 20, { step: 2 }); yy += 32 * U * k;
+		js.ui.scale = base;
+		ui5.escala = deslizador("sl_esc", { x: i.x, y: yy, w: i.w, h: 34 * U }, ui5.escala, 0.7, 1.6, "js.ui.scale (multiplicador)", v => "x" + v.toFixed(2)); yy += 44 * U;
+		ui5.nav = interruptor("t_nav", { x: i.x, y: yy, w: i.w, h: 26 * U }, ui5.nav, "js.ui.navigation (teclado y gamepad)");
+		T("Tab / Shift+Tab · flechas · Enter o Espacio · Esc", i.x, yy + 38 * U, 11, C.dim);
+
+		// columna 2: lista y estado
+		const j = { x: col2.x + 10 * U, y: col2.y + 10 * U, w: col2.w - 20 * U };
+		T("Lista con scroll (rueda o arrastrar)", j.x, j.y + 6 * U, 13, C.text, "left", 700);
+		const lh = Math.min(col2.h * 0.5, 280 * U);
+		const sel = js.ui.list("lista", R(j.x, j.y + 18 * U, j.w, lh), ITEMS, { rowHeight: 30, size: 13, selected: ui5.lista });
+		if (sel >= 0) ui5.lista = sel;
+		js.drawRectangleRoundedLines(R(j.x, j.y + 18 * U, j.w, lh), 6 * U, 1, C.line);
+		let ly = j.y + 18 * U + lh + 18 * U;
+		T(`seleccionado: ${ui5.lista}   scroll: ${js.ui.getScroll("lista").toFixed(0)} px`, j.x, ly, 12, C.dim); ly += 26 * U;
+		T("Estado de js.ui", j.x, ly, 13, C.text, "left", 700); ly += 20 * U;
+		const est = [
+			["hot", js.ui.hot], ["active", js.ui.active], ["último clic", ui5.ultimo], ["pointerOver", js.ui.pointerOver],
+			["wantsPointer", js.ui.wantsPointer], ["pointerType", js.pointerType], ["zonas", js.ui.zones.length],
+			["focused", js.ui.focused], ["focusVisible", js.ui.focusVisible], ["wantsKeyboard", js.ui.wantsKeyboard],
+		];
+		est.forEach(([n, v], k) => { T(n, j.x + (k % 2) * (j.w / 2), ly + Math.floor(k / 2) * 18 * U, 12, C.dim); T(String(v), j.x + (k % 2) * (j.w / 2) + 92 * U, ly + Math.floor(k / 2) * 18 * U, 12, C.text, "left", 600); });
+		js.ui.panel(R(j.x, ly + 108 * U, j.w, 54 * U), { title: "js.ui.panel", radius: 8 });
+		T("(un panel bloquea los toques de lo que tiene debajo)", j.x + 12 * U, ly + 152 * U, 11, C.dim);
+	},
+});
+
+// ---------------------------------------------------------------------------------------------
+// 6. Entrada por acciones y gamepad
+// ---------------------------------------------------------------------------------------------
+
+const PAD_NOMBRES = Object.keys(ActionMap.PAD_BUTTONS);
+const ent = { x: 0, y: 0, esperando: null, mensaje: "", dibujo: [] };
+const ACCIONES = {
+	izq: ["KeyA", "ArrowLeft", "pad:Left", "pad:LStickLeft"], der: ["KeyD", "ArrowRight", "pad:Right", "pad:LStickRight"],
+	arr: ["KeyW", "ArrowUp", "pad:Up", "pad:LStickUp"], aba: ["KeyS", "ArrowDown", "pad:Down", "pad:LStickDown"],
+	accion: ["Space", "pad:A"], turbo: ["ShiftLeft", "pad:RT"], pausa: ["KeyP", "pad:Start"],
+};
+function bindEntrada() {
+	js.input.bindAll(ACCIONES);
+	for (const n of PAD_NOMBRES) js.input.bind("pb_" + n, "pad:" + n);
+	for (const l of ["L", "R"]) for (const d of ["Up", "Down", "Left", "Right"]) js.input.bind(`${l}s_${d}`, `pad:${l}Stick${d}`);
+}
+bindEntrada();
+
+js.scenes.add("entrada", {
+	enter() { ent.x = content.x + content.w * 0.3; ent.y = content.y + content.h * 0.35; ent.esperando = null; ent.mensaje = ""; },
+	update(dt) {
+		const v = js.input.vector("izq", "der", "arr", "aba");
+		const vel = (js.input.isDown("turbo") ? 480 : 220) * U;
+		ent.x = clamp(ent.x + v.x * vel * dt, content.x + 20 * U, content.x + content.w * 0.6);
+		ent.y = clamp(ent.y + v.y * vel * dt, content.y + 20 * U, content.y + content.h * 0.62);
+		if (js.input.pressed("accion")) { js.particles.emit(ent.x, ent.y, 18, "sparks"); js.input.rumble({ duration: 120, weak: 0.4, strong: 0.2 }); }
+		const id = js.ui.clicked;
+		if (id === "rumble") js.input.rumble({ duration: 400, weak: 0.8, strong: 0.8 });
+		if (id === "reset") { bindEntrada(); ent.mensaje = "asignaciones restauradas"; }
+		if (id && id.startsWith("rebind:") && !ent.esperando) {
+			const accion = id.slice(7);
+			ent.esperando = accion; ent.mensaje = "apretá un control para «" + accion + "» (Escape cancela)";
+			js.input.captureNext().then(src => {
+				ent.esperando = null;
+				if (src === null) { ent.mensaje = "cancelado"; return; }
+				js.input.bind(accion, src);
+				ent.mensaje = `«${accion}» ahora es ${src}`;
+			});
+		}
+		js.input.setVirtual("turbo", js.ui.active === "virtual" ? 1 : 0);
+	},
+	draw() {
+		const { x, y, w, h } = content;
+		const area = { x: x + 4 * U, y, w: w * 0.62, h: h * 0.62 };
+		box(area);
+		T("Movés el círculo con WASD / flechas / cruceta / palanca izquierda · Espacio o A = chispas + vibración (acá la navegación de la interfaz está apagada)", area.x + 10 * U, area.y + 14 * U, 11, C.dim);
+		js.drawCircle(P(ent.x, ent.y), 16 * U, js.input.isDown("turbo") ? C.accent : C.ok);
+		js.particles.draw();
+
+		// acciones y su valor
+		const lista = { x: area.x, y: area.y + area.h + 8 * U, w: area.w, h: h - area.h - 8 * U };
+		box(lista);
+		const nombres = Object.keys(ACCIONES);
+		const cw = (lista.w - 20 * U) / 4, chh = 26 * U;
+		T("Acciones (clic en una para reasignar su control)", lista.x + 10 * U, lista.y + 14 * U, 12, C.text, "left", 700);
+		nombres.forEach((n, k) => {
+			const cx = lista.x + 10 * U + (k % 4) * cw, cy = lista.y + 26 * U + Math.floor(k / 4) * (chh + 6 * U);
+			const val = js.input.value(n);
+			btn("rebind:" + n, { x: cx, y: cy, w: cw - 6 * U, h: chh }, "", { color: "rgba(255,255,255,0.05)", border: C.line, radius: 6 });
+			js.drawRectangleRounded(R(cx, cy, (cw - 6 * U) * val, chh), 6 * U, js.input.isDown(n) ? "rgba(6,214,160,0.55)" : "rgba(255,255,255,0.10)");
+			T(n, cx + 8 * U, cy + 8 * U, 12, C.text, "left", 700);
+			T(js.input.bindings(n).slice(0, 2).join(" · "), cx + 8 * U, cy + 20 * U, 9, C.dim);
+		});
+		T(ent.mensaje, lista.x + 10 * U, lista.y + lista.h - 12 * U, 12, C.accent);
+
+		// panel derecho: gamepad
+		const pad = { x: area.x + area.w + 10 * U, y, w: w - area.w - 18 * U, h };
+		box(pad);
+		const q = { x: pad.x + 10 * U, y: pad.y + 10 * U, w: pad.w - 20 * U };
+		T("Gamepad", q.x, q.y + 6 * U, 13, C.text, "left", 700);
+		const gps = js.input.gamepads;
+		T(gps.length ? gps.map(g => g.id).join(" | ").slice(0, 60) : "ninguno conectado (apretá un botón del gamepad)", q.x, q.y + 24 * U, 11, gps.length ? C.ok : C.dim);
+		T("último dispositivo: " + js.input.device, q.x, q.y + 42 * U, 12, C.dim);
+		js.input.deadzone = deslizador("e_dz", { x: q.x, y: q.y + 54 * U, w: q.w, h: 34 * U }, js.input.deadzone, 0, 0.8, "deadzone");
+		// palancas
+		const r = Math.min(46 * U, q.w / 5);
+		[["L", q.x + q.w * 0.27], ["R", q.x + q.w * 0.73]].forEach(([l, cx]) => {
+			const cy = q.y + 130 * U;
+			js.drawCircleLines(P(cx, cy), r, 1.5, C.line);
+			js.drawCircleLines(P(cx, cy), r * js.input.deadzone, 1, "rgba(239,71,111,0.6)");
+			const sx = js.input.value(l + "s_Right") - js.input.value(l + "s_Left"), sy = js.input.value(l + "s_Down") - js.input.value(l + "s_Up");
+			js.drawCircle(P(cx + sx * r, cy + sy * r), 7 * U, C.accent);
+			T(l + " " + sx.toFixed(2) + ", " + sy.toFixed(2), cx, cy + r + 14 * U, 10, C.dim, "center");
+		});
+		// botones
+		const bw = q.w / 6;
+		PAD_NOMBRES.forEach((n, k) => {
+			const bx = q.x + (k % 6) * bw, by = q.y + 214 * U + Math.floor(k / 6) * 26 * U;
+			const val = js.input.value("pb_" + n);
+			js.drawRectangleRounded(R(bx + 2 * U, by, bw - 4 * U, 22 * U), 5 * U, val >= js.input.threshold ? C.ok : `rgba(255,255,255,${0.06 + val * 0.3})`);
+			T(n, bx + bw / 2, by + 11 * U, 10, val >= js.input.threshold ? "#06251b" : C.dim, "center", 600);
+		});
+		const fy = q.y + 214 * U + 3 * 26 * U + 10 * U;
+		btn("rumble", { x: q.x, y: fy, w: q.w, h: 30 * U }, "rumble()");
+		btn("virtual", { x: q.x, y: fy + 38 * U, w: q.w, h: 30 * U }, "setVirtual('turbo') mientras se mantiene apretado", { color: "rgba(255,255,255,0.1)" });
+		btn("reset", { x: q.x, y: fy + 76 * U, w: q.w, h: 30 * U }, "Restaurar asignaciones");
+		T("exportBindings():", q.x, fy + 122 * U, 11, C.text, "left", 700);
+		const todas = js.input.exportBindings(), propias = {};
+		for (const n of Object.keys(ACCIONES)) propias[n] = todas[n];
+		const json = JSON.stringify(propias);
+		for (let k = 0; k * 40 < json.length; k++) T(json.slice(k * 40, k * 40 + 40), q.x, fy + 138 * U + k * 12 * U, 9, C.dim);
+	},
+});
+
+// ---------------------------------------------------------------------------------------------
+// 7. Paso fijo
+// ---------------------------------------------------------------------------------------------
+
+const pf = { lag: 0, interpolar: true, hz: 60, pausa: false, escala: 1, fps: 60, a: null, b: null, picoA: 0, picoB: 0, alt: 240 };
+const G_ = 1400;                                 // gravedad, px/s² (sin escalar: la escena se mide en unidades)
+
+function pfReset() {
+	const piso = 1;
+	pf.a = { y: -pf.alt, py: -pf.alt, vy: 0, piso, rebotes: 0 };
+	pf.b = { y: -pf.alt, vy: 0, piso, rebotes: 0 };
+	pf.picoA = pf.picoB = 0;
+	js.fixed.reset();
+}
+function pasoBola(b, dt) {
+	// rebote perfecto: con pasos iguales la bola vuelve siempre a la misma altura, y con pasos
+	// que cambian cada cuadro la altura se va corriendo
+	b.vy += G_ * dt;
+	b.y += b.vy * dt;
+	if (b.y >= 0) {
+		b.y = 0; b.vy = -b.vy; b.rebotes++;
+		return Math.abs(b.vy);
+	}
+	return 0;
+}
+
+js.scenes.add("pasofijo", {
+	enter() { pfReset(); js.fixed.hz = pf.hz; js.fixed.paused = false; js.fixed.timeScale = 1; },
+	exit() { js.fixed.hz = 60; js.fixed.paused = false; js.fixed.timeScale = 1; },
+	update(dt) {
+		if (pf.lag > 0) { const t0 = performance.now(); while (performance.now() - t0 < pf.lag); }   // cuadro lento a propósito
+		pf.fps = Js2d.lerp(pf.fps, 1 / Math.max(1e-4, dt), 0.1);
+		const id = js.ui.clicked;
+		if (id === "pf_reset") pfReset();
+		if (id && id.startsWith("hz:")) { pf.hz = +id.slice(3); js.fixed.hz = pf.hz; pfReset(); }
+		js.fixed.paused = pf.pausa;
+		js.fixed.timeScale = pf.escala;
+		// A: simulación a paso fijo. El espacio lo consume un solo paso.
+		js.fixed.run((step) => {
+			pf.a.py = pf.a.y;
+			if (js.input.consumePressed("accion")) pf.a.vy = -900;
+			const v = pasoBola(pf.a, step);
+			if (v) pf.picoA = v * v / (2 * G_);
+		});
+		// B: el dt de cada cuadro, sin más
+		if (!pf.pausa) {
+			if (js.input.pressed("accion")) pf.b.vy = -900;
+			const v = pasoBola(pf.b, dt * pf.escala);
+			if (v) pf.picoB = v * v / (2 * G_);
+		}
+	},
+	draw() {
+		const { x, y, w, h } = content;
+		const esc = { x: x + 4 * U, y, w: w * 0.55, h };
+		box(esc);
+		const piso = esc.y + esc.h - 40 * U;
+		js.drawLine(P(esc.x + 10 * U, piso), P(esc.x + esc.w - 10 * U, piso), 2, C.line);
+		const a = pf.a;
+		const ya = pf.interpolar ? Js2d.lerp(a.py, a.y, js.fixed.alpha) : a.y;
+		const sx = 1.0 * U;
+		js.drawCircle(P(esc.x + esc.w * 0.3, piso - 14 * U + ya * sx), 14 * U, C.accent);
+		js.drawCircle(P(esc.x + esc.w * 0.7, piso - 14 * U + pf.b.y * sx), 14 * U, C.blue);
+		T("A: js.fixed (paso fijo" + (pf.interpolar ? " + alpha" : "") + ")", esc.x + esc.w * 0.3, esc.y + 20 * U, 12, C.accent, "center", 700);
+		T("B: dt de cada cuadro", esc.x + esc.w * 0.7, esc.y + 20 * U, 12, C.blue, "center", 700);
+		T("pico del último rebote (px de altura)", esc.x + esc.w / 2, esc.y + 44 * U, 11, C.dim, "center");
+		T(pf.picoA.toFixed(1), esc.x + esc.w * 0.3, esc.y + 62 * U, 20, C.accent, "center", 700);
+		T(pf.picoB.toFixed(1), esc.x + esc.w * 0.7, esc.y + 62 * U, 20, C.blue, "center", 700);
+		T("Rebote perfecto: A vuelve siempre a la misma altura y B se corre con el retraso. Espacio da un salto a las dos.", esc.x + esc.w / 2, esc.y + esc.h - 14 * U, 10, C.dim, "center");
+
+		const col = { x: esc.x + esc.w + 10 * U, y, w: w - esc.w - 18 * U, h };
+		box(col);
+		const i = { x: col.x + 10 * U, y: col.y + 10 * U, w: col.w - 20 * U };
+		T("js.fixed", i.x, i.y + 6 * U, 14, C.text, "left", 700);
+		const hzs = js.ui.columns(R(i.x, i.y + 20 * U, i.w, 30 * U), 3, 6 * U);
+		[30, 60, 120].forEach((hz, k) => btn("hz:" + hz, { x: hzs[k].x, y: hzs[k].y, w: hzs[k].width, h: hzs[k].height }, hz + " Hz", { primary: pf.hz === hz }));
+		let yy = i.y + 62 * U;
+		pf.lag = Math.round(deslizador("pf_lag", { x: i.x, y: yy, w: i.w, h: 34 * U }, pf.lag, 0, 80, "retraso artificial por cuadro", v => v.toFixed(0) + " ms")); yy += 40 * U;
+		pf.escala = deslizador("pf_esc", { x: i.x, y: yy, w: i.w, h: 34 * U }, pf.escala, 0.1, 2, "timeScale", v => "x" + v.toFixed(2)); yy += 40 * U;
+		pf.interpolar = interruptor("pf_int", { x: i.x, y: yy, w: i.w, h: 26 * U }, pf.interpolar, "interpolar con alpha"); yy += 32 * U;
+		pf.pausa = interruptor("pf_pau", { x: i.x, y: yy, w: i.w, h: 26 * U }, pf.pausa, "paused"); yy += 34 * U;
+		btn("pf_reset", { x: i.x, y: yy, w: i.w, h: 30 * U }, "reset()"); yy += 44 * U;
+		const f = js.fixed;
+		[["cuadros por segundo", pf.fps.toFixed(0)], ["pasos en este cuadro", f.steps], ["alpha", f.alpha.toFixed(2)], ["lagged", String(f.lagged)], ["ticks", f.ticks], ["time", f.time.toFixed(2) + " s"], ["maxSteps / tolerance", f.maxSteps + " / " + (f.tolerance * 1000).toFixed(0) + " ms"]]
+			.forEach(([n, v], k) => { T(n, i.x, yy + k * 18 * U, 12, C.dim); T(String(v), i.x + i.w, yy + k * 18 * U, 12, k === 3 && f.lagged ? C.bad : C.text, "right", 600); });
+	},
+});
+
+// ---------------------------------------------------------------------------------------------
+// Marco: pestañas, atajos y bucle
+// ---------------------------------------------------------------------------------------------
+
+const SECCIONES = [
+	["curvas", "1 Curvas y tweens"], ["shake", "2 Shake"], ["escenas", "3 Escenas"], ["particulas", "4 Partículas"],
+	["interfaz", "5 Interfaz"], ["entrada", "6 Entrada"], ["pasofijo", "7 Paso fijo"],
+];
+SECCIONES.forEach((_, i) => js.input.bind("tab" + (i + 1), "Digit" + (i + 1), "Numpad" + (i + 1)));
+
+function medir() {
+	const W = js.getCanvasWidth(), H = js.getCanvasHeight();
+	U = clamp(Math.min(W / 1050, H / 700), 0.7, 1.6);
+	js.ui.scale = U;
+	const top = 52 * U;
+	content = { x: 12 * U, y: top, w: W - 24 * U, h: H - top - 22 * U };
+}
+
+function update(dt) {
+	// La navegación de la interfaz se activa en las pantallas de menú y se apaga mientras se juega: las
+	// secciones "Entrada" y "Paso fijo" usan las mismas flechas, Espacio y palanca como controles de juego.
+	// Tampoco está activa mientras se reasigna un control (esas teclas son del control nuevo).
+	const jugando = js.scenes.current === "entrada" || js.scenes.current === "pasofijo";
+	js.ui.navigation = ui5.nav && !ent.esperando && !jugando;
+	js.ui.begin();
+	medir();
+	SECCIONES.forEach(([nombre], i) => {
+		if (js.input.pressed("tab" + (i + 1)) && !ent.esperando) js.scenes.switch(nombre);
+		if (js.ui.clicked === "tab:" + nombre) js.scenes.switch(nombre);
+	});
+	js.scenes.update(dt);
+}
+
+function draw() {
+	medir();
+	js.clearBg(C.bg);
+	js.scenes.draw();
+	// el marco no tiembla
+	js.withoutShake(() => {
+		const W = js.getCanvasWidth();
+		js.drawRectangle(R(0, 0, W, 44 * U), "rgba(8,14,22,0.96)");
+		const tw = (W - 190 * U) / SECCIONES.length;
+		SECCIONES.forEach(([nombre, etiqueta], i) => {
+			const activa = js.scenes.current === nombre;
+			btn("tab:" + nombre, { x: 6 * U + i * tw, y: 6 * U, w: tw - 4 * U, h: 32 * U }, etiqueta,
+				{ color: activa ? C.accent : "rgba(255,255,255,0.08)", textColor: activa ? "#1b1400" : C.text, radius: 8, size: 13, weight: 700 });
+		});
+		T("js2d · prueba visual", W - 10 * U, 15 * U, 12, C.text, "right", 700);
+		T(`${js.getCanvasWidth()}x${js.getCanvasHeight()} · dpr ${(js.dpr || 1).toFixed(2)} · teclas 1-7 · Tab: foco`, W - 10 * U, 31 * U, 10, C.dim, "right");
+	});
+}
+
+function bucle(ts) {
+	js.tick(ts);
+	update(js.getFrameTime());
+	draw();
+	requestAnimationFrame(bucle);
+}
+
+medir();
+// test.html#4 abre directo la cuarta sección; test.html#5:sl1 la abre con el foco en el widget "sl1"
+const [numHash, ...restoHash] = typeof location !== "undefined" ? location.hash.slice(1).split(":") : [];
+const focoHash = restoHash.join(":");
+const inicio = SECCIONES[(parseInt(numHash, 10) || 1) - 1];
+js.scenes.switch(inicio[0]);
+if (focoHash) js.ui.focus(focoHash);
+requestAnimationFrame(bucle);
+</script>
+</body>
+</html>
