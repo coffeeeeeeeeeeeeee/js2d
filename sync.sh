@@ -6,7 +6,7 @@ cd "$(dirname "$0")" || exit 1
 SRC=js2d.js
 DEV=..
 # proyecto:tipo  (tipo "module" agrega el export ES al final)
-PROJECTS="senal-muerta:plain capital-rush:plain mario:plain digital-circus-vn:plain bot-factory:plain truco-ar:plain f1-simulator:module"
+PROJECTS="senal-muerta:plain capital-rush:plain mario:plain digital-circus-vn:plain bot-factory:plain truco-ar:plain f1-simulator:module apagon:plain"
 EXPORT='
 // --- adaptación f1-simulator: se consume como módulo ES ---
 export { Js2d, Color, Pivot, Line_Cap, SpriteFont, Ease, Collision, SpatialGrid };'
