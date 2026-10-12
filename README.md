@@ -11,11 +11,11 @@ llevan una copia de `js2d.js` (se mantienen sincronizadas con `sync.sh`).
 ## Probar
 
 ```
-for t in tween scenes particles ui uinav input fixed page; do node test/$t.test.js | tail -1; done
+for t in tween scenes particles ui uinav input fixed collision page; do node test/$t.test.js | tail -1; done
 ```
 
 ## Reglas
 
-- Los nombres de funciones y clases son genéricos, sin el nombre del motor (`Tween`, `SceneManager`, `ParticleSystem`...).
+- Los nombres de funciones y clases son genéricos, sin el nombre del motor (`Tween`, `SceneManager`, `ParticleSystem`, `Collision`, `SpatialGrid`...).
   Esos nombres globales quedan reservados: ningún juego puede declararlos (si choca, se renombra la clase del juego).
 - Se edita acá y después se corre `./sync.sh`; los `js2d.js` de los juegos no se tocan a mano.
