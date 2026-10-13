@@ -11,7 +11,7 @@ llevan una copia de `js2d.js` (se mantienen sincronizadas con `sync.sh`).
 ## Probar
 
 ```
-for t in tween scenes particles ui uinav input fixed collision page; do node test/$t.test.js | tail -1; done
+for t in tween scenes particles ui uinav dropdown input fixed collision page; do node test/$t.test.js | tail -1; done
 ```
 
 ## Reglas

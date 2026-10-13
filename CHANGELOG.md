@@ -1,7 +1,16 @@
 # js2d
 
 Fuente canónica del motor. Se edita acá y se copia a los juegos con `./sync.sh` (`--check` sólo informa).
-Pruebas: `node test/tween.test.js`, `node test/scenes.test.js`, `node test/particles.test.js`, `node test/ui.test.js`, `node test/input.test.js`, `node test/fixed.test.js`, `node test/collision.test.js`, `node test/uinav.test.js` y `node test/page.test.js` (sin navegador, con un DOM de mentira en `test/harness.js`).
+Pruebas: `node test/tween.test.js`, `node test/scenes.test.js`, `node test/particles.test.js`, `node test/ui.test.js`, `node test/input.test.js`, `node test/fixed.test.js`, `node test/collision.test.js`, `node test/uinav.test.js`, `node test/dropdown.test.js` y `node test/page.test.js` (sin navegador, con un DOM de mentira en `test/harness.js`).
+
+## 1.12
+- Menú desplegable, `js.ui.dropdown(id, rect, items, selected, opts)`: un campo con lo elegido y una lista que se abre debajo (o arriba, si abajo no entra; siempre dentro de la pantalla). Devuelve el índice elegido (el mismo si no cambió; `-1` = nada elegido, y se muestra `placeholder`). `items`: textos o `{ label, disabled }`. Opciones: `size`, `radius`, `disabled`, `placeholder`, `rowHeight` (32), `maxRows` (8; a partir de ahí la lista se desplaza con rueda o arrastre), `popupWidth` (por defecto el del campo) y `color`.
+- Se cierra al elegir, con Escape o al apretar afuera; mientras está abierto, ese toque no llega a lo que haya debajo (la lista y un bloqueo de pantalla completa van por encima de todo, sin importar el orden de declaración). Se cierra solo si el juego deja de declararlo.
+- Teclado y gamepad (con `navigation`): Enter, Espacio o A abren; con la lista abierta, arriba y abajo mueven la fila y Enter elige (el foco vuelve al campo); con el campo cerrado, arriba y abajo cambian la elección sin abrir. Las zonas informan `kind: 'dropdown'` (el campo) y `'list'` (`id + ':list'`).
+- `js.ui.end()`: opcional. La lista se dibuja en el momento en que se declara el dropdown, así que lo que se declare después encima la tapa; si el juego llama a `end()` al final de cada cuadro, las listas abiertas se dibujan ahí, siempre encima de todo. En ese modo la elección llega al dropdown en el cuadro siguiente.
+- `js.ui.theme.popup`: fondo de la lista (sólido, porque se dibuja sobre otros widgets).
+- `test.html`, sección 5: un dropdown arriba de la columna derecha (con un ítem deshabilitado y `maxRows: 6`). Pruebas: `test/dropdown.test.js` (18) y una más en `test/page.test.js`.
+- Sólo se agrega: ningún juego cambia. No se sincronizó a los juegos todavía.
 
 ## 1.11
 - Colisiones, `Collision` (funciones puras, no tocan el canvas). Formas: rect `{x, y, width, height}`, círculo `{x, y, radius}`, segmento `{x1, y1, x2, y2}` y polígono (array de `{x, y}`, convexo para las de solape). Se suman a los `checkCollision*` de siempre, que siguen igual. Tocarse nada más no es chocar.

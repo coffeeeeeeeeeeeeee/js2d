@@ -330,7 +330,8 @@ js.scenes.add("particulas", {
 // 5. Interfaz (js.ui)
 // ---------------------------------------------------------------------------------------------
 
-const ui5 = { nav: true, toggle1: true, toggle2: false, slider: 0.35, paso: 6, lista: 2, escala: 1, ultimo: "-", textoLargo: "Un botón con un texto bastante largo" };
+const ui5 = { nav: true, toggle1: true, toggle2: false, slider: 0.35, paso: 6, lista: 2, menu: 1, escala: 1, ultimo: "-", textoLargo: "Un botón con un texto bastante largo" };
+const MENU = ["Carrera", "Campaña", "Contrarreloj", "Práctica", "Clasificación", "Sprint", { label: "Online (deshabilitado)", disabled: true }, "Replay", "Opciones", "Créditos"];
 const ITEMS = Array.from({ length: 40 }, (_, i) => i % 7 === 3 ? { label: "Elemento " + (i + 1) + " (deshabilitado)", disabled: true } : "Elemento " + (i + 1));
 
 js.scenes.add("interfaz", {
@@ -372,12 +373,14 @@ js.scenes.add("interfaz", {
 
 		// columna 2: lista y estado
 		const j = { x: col2.x + 10 * U, y: col2.y + 10 * U, w: col2.w - 20 * U };
-		T("Lista con scroll (rueda o arrastrar)", j.x, j.y + 6 * U, 13, C.text, "left", 700);
-		const lh = Math.min(col2.h * 0.5, 280 * U);
-		const sel = js.ui.list("lista", R(j.x, j.y + 18 * U, j.w, lh), ITEMS, { rowHeight: 30, size: 13, selected: ui5.lista });
+		T("Dropdown (se abre abajo o arriba; Esc o tocar afuera cierran)", j.x, j.y + 6 * U, 13, C.text, "left", 700);
+		const dd = 56 * U;      // lo que ocupa el dropdown; se declara al final del cuadro para que su lista quede encima de todo
+		T("Lista con scroll (rueda o arrastrar)", j.x, j.y + 6 * U + dd, 13, C.text, "left", 700);
+		const lh = Math.max(80 * U, Math.min(col2.h * 0.5, 280 * U) - dd);
+		const sel = js.ui.list("lista", R(j.x, j.y + 18 * U + dd, j.w, lh), ITEMS, { rowHeight: 30, size: 13, selected: ui5.lista });
 		if (sel >= 0) ui5.lista = sel;
-		js.drawRectangleRoundedLines(R(j.x, j.y + 18 * U, j.w, lh), 6 * U, 1, C.line);
-		let ly = j.y + 18 * U + lh + 18 * U;
+		js.drawRectangleRoundedLines(R(j.x, j.y + 18 * U + dd, j.w, lh), 6 * U, 1, C.line);
+		let ly = j.y + 18 * U + dd + lh + 18 * U;
 		T(`seleccionado: ${ui5.lista}   scroll: ${js.ui.getScroll("lista").toFixed(0)} px`, j.x, ly, 12, C.dim); ly += 26 * U;
 		T("Estado de js.ui", j.x, ly, 13, C.text, "left", 700); ly += 20 * U;
 		const est = [
@@ -388,6 +391,7 @@ js.scenes.add("interfaz", {
 		est.forEach(([n, v], k) => { T(n, j.x + (k % 2) * (j.w / 2), ly + Math.floor(k / 2) * 18 * U, 12, C.dim); T(String(v), j.x + (k % 2) * (j.w / 2) + 92 * U, ly + Math.floor(k / 2) * 18 * U, 12, C.text, "left", 600); });
 		js.ui.panel(R(j.x, ly + 108 * U, j.w, 54 * U), { title: "js.ui.panel", radius: 8 });
 		T("(un panel bloquea los toques de lo que tiene debajo)", j.x + 12 * U, ly + 152 * U, 11, C.dim);
+		ui5.menu = js.ui.dropdown("menu", R(j.x, j.y + 18 * U, j.w, 32 * U), MENU, ui5.menu, { size: 13, rowHeight: 30, maxRows: 6, placeholder: "Elegí un modo" });
 	},
 });
 

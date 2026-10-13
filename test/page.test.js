@@ -194,6 +194,16 @@ test('interfaz: la lista se desplaza con la rueda y no devuelve filas deshabilit
 	ev('js.ui.setScroll("lista", 0)'); frames(2);
 	tap(l.x + 30, l.y + 30 * 3.5 * ev('U')); eq(ev('ui5.lista'), antes);
 });
+test('interfaz: el dropdown abre su lista, elige una fila y se cierra; tocar afuera también cierra', () => {
+	const abierta = () => ev('js.ui.zones.some(z => z.id === "menu:list")');
+	const f = zona('menu'); tap(f.x + f.w / 2, f.y + f.h / 2); frames(2);
+	eq(abierta(), true);
+	const l = zona('menu:list');
+	tap(l.x + 20, l.y + l.h / 6 * 2.5); frames(2);
+	eq(ev('ui5.menu'), 2); eq(abierta(), false);
+	tap(f.x + f.w / 2, f.y + f.h / 2); frames(2); eq(abierta(), true);
+	tap(5, 5); frames(2); eq(abierta(), false); eq(ev('ui5.menu'), 2);
+});
 test('interfaz: el multiplicador de escala agranda los widgets sin romper nada', () => {
 	const z = zona('sl_esc'); tap(z.x + z.w * 0.95, z.y + z.h / 2);
 	if (!(ev('ui5.escala') > 1.4)) throw new Error('escala: ' + ev('ui5.escala'));
